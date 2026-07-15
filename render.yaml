@@ -1,0 +1,13 @@
+# 一键部署到 Render.com（免费版）：把整个 server/ 目录推到 GitHub 后，
+# 在 Render 新建 "Blueprint" 并连该仓库即可，无需手动填命令。
+services:
+  - type: web
+    name: wechat-flow-analyzer
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -w 2 -b 0.0.0.0:$PORT server:app
+    healthCheckPath: /api/me
+    envVars:
+      - key: PORT
+        value: 10000

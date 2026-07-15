@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>微信流水风险分析</title>
+<style>
+  :root{--bg:#f5f7fa;--card:#fff;--ink:#1f2937;--mut:#6b7785;--brand:#2f6fed;--err:#b91c1c;--line:#e5e9f0}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+       background:var(--bg);color:var(--ink);line-height:1.6}
+  .wrap{max-width:860px;margin:0 auto;padding:28px 18px 60px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;box-shadow:0 1px 3px rgba(16,24,40,.04)}
+  h1{font-size:22px;margin:0 0 4px}
+  .sub{color:var(--mut);font-size:13px;margin:0 0 18px}
+  label{font-size:13px;color:var(--mut);display:block;margin:12px 0 4px}
+  input[type=number],input[type=password]{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:9px;font-size:15px}
+  .opt{display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin-top:6px}
+  .opt label{display:flex;align-items:center;gap:6px;margin:0;color:var(--ink);font-size:14px}
+  .btns{display:flex;gap:12px;margin-top:18px;flex-wrap:wrap}
+  button{font-size:15px;padding:11px 18px;border:0;border-radius:10px;cursor:pointer;background:var(--brand);color:#fff}
+  button.ghost{background:#eef2f8;color:var(--ink)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  #drop{border:2px dashed var(--line);border-radius:12px;padding:26px;text-align:center;color:var(--mut);
+        cursor:pointer;transition:.15s;background:#fbfcfe}
+  #drop.hover{border-color:var(--brand);background:#f0f6ff;color:var(--ink)}
+  #filebox{margin-top:10px;font-size:13px;color:var(--ink)}
+  #status{margin-top:12px;font-size:13px;color:var(--mut);min-height:18px}
+  #status.err{color:var(--err)}
+  .hidden{display:none}
+  #report{margin-top:22px}
+  #repframe{width:100%;height:80vh;border:1px solid var(--line);border-radius:12px;background:#fff}
+  .banner{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:10px;padding:10px 13px;font-size:13px;margin-bottom:16px}
+  .topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+  .topbar .who{font-size:13px;color:var(--mut)}
+  .spinner{display:inline-block;width:13px;height:13px;border:2px solid #cbd5e1;border-top-color:var(--brand);
+           border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #login{padding:34px}
+  .loginhint{font-size:12px;color:var(--mut);margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- 登录门 -->
+  <div id="login" class="card hidden">
+    <h1>微信流水风险分析</h1>
+    <p class="sub">请输入访问密码以使用本工具。</p>
+    <label for="pw">访问密码</label>
+    <input type="password" id="pw" placeholder="访问密码" autocomplete="current-password">
+    <div class="btns">
+      <button id="loginBtn">进入</button>
+    </div>
+    <p id="loginErr" class="status err hidden"></p>
+    <p class="loginhint">本工具由站点主人部署，密码向其获取。</p>
+  </div>
+
+  <!-- 主工具 -->
+  <div id="app" class="card hidden">
+    <div class="topbar">
+      <div>
+        <h1>微信流水风险分析</h1>
+        <p class="sub" style="margin:0">上传微信支付导出的 PDF / CSV / XLSX，自动生成风险分析报告。</p>
+      </div>
+      <button id="logout" class="ghost">退出</button>
+    </div>
+
+    <div class="banner">
+      ⚠️ 隐私提示：你上传的流水文件将在<strong>服务端被解析并收集留存</strong>（交易时间、金额、对手方等明细），
+      用于站点主人的汇总研究。如不同意，请勿上传。报告仅在本次会话展示，不自动外发。
+    </div>
+
+    <div id="drop">点击或拖拽微信流水文件到此处（PDF / CSV / XLSX）</div>
+    <input type="file" id="file" accept=".pdf,.csv,.xlsx,.xls" class="hidden">
+    <div id="filebox"></div>
+
+    <div class="opt">
+      <label>全局最小金额 <input type="number" id="globalMin" value="300" style="width:96px"></label>
+      <label>大额阈值 <input type="number" id="large" value="50000" style="width:110px"></label>
+      <label><input type="checkbox" id="ignoreChk" checked> 忽略充值/提现/信用卡还款</label>
+    </div>
+
+    <div class="btns">
+      <button id="exportBtn" class="ghost">导出已收集流水(CSV)</button>
+    </div>
+
+    <div id="status"></div>
+  </div>
+
+  <!-- 报告区 -->
+  <div id="report" class="card hidden" style="margin-top:22px">
+    <iframe id="repframe" title="报告"></iframe>
+  </div>
+
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+function setStatus(msg, isErr){
+  const s = $("status"); s.innerHTML = msg; s.className = isErr ? "status err" : "status";
+}
+function show(id){ $(id).classList.remove("hidden"); }
+function hide(id){ $(id).classList.add("hidden"); }
+
+// 启动时判断登录态
+async function boot(){
+  try{
+    const r = await fetch("/api/me"); const d = await r.json();
+    if(d.authed){ enter(); } else { show("login"); }
+  }catch(e){ show("login"); }
+}
+boot();
+
+// 登录
+$("loginBtn").addEventListener("click", doLogin);
+$("pw").addEventListener("keydown", e => { if(e.key==="Enter") doLogin(); });
+async function doLogin(){
+  const pw = $("pw").value;
+  if(!pw){ $("loginErr").textContent="请输入密码"; show("loginErr"); return; }
+  try{
+    const r = await fetch("/api/login", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body: JSON.stringify({password:pw})});
+    if(r.ok){ enter(); }
+    else { const d = await r.json().catch(()=>({})); $("loginErr").textContent = d.error || "密码错误"; show("loginErr"); }
+  }catch(e){
+    $("loginErr").textContent = "无法连接服务器：请确认本页是由服务端(server.py)提供的 http(s) 地址打开，而不是本地文件(file://)或纯静态托管。";
+    show("loginErr");
+  }
+}
+function enter(){ hide("login"); show("app"); refreshStats(); }
+
+// 退出
+$("logout").addEventListener("click", async () => {
+  await fetch("/api/logout", {method:"POST"});
+  hide("app"); hide("report"); show("login"); $("pw").value="";
+});
+
+// 上传
+const drop = $("drop"), fileInput = $("file");
+let selectedFile = null;
+function setFile(f){
+  if(!f) return;
+  selectedFile = f;
+  $("filebox").innerHTML = "已选择：<b>"+f.name+"</b>　（"+(f.size/1024).toFixed(1)+" KB）";
+  runAnalysis();
+}
+drop.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", e => setFile(e.target.files[0]));
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("hover"); }));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("hover"); }));
+drop.addEventListener("drop", e => setFile(e.dataTransfer.files && e.dataTransfer.files[0]));
+
+// 自动分析
+async function runAnalysis(){
+  if(!selectedFile){ setStatus("请先拖入或选择微信流水文件。"); return; }
+  setStatus('<span class="spinner"></span>正在分析，请稍候…（PDF 首次解析稍慢）');
+  const fd = new FormData();
+  fd.append("file", selectedFile);
+  fd.append("globalMin", $("globalMin").value || 300);
+  fd.append("large", $("large").value || 50000);
+  fd.append("ignoreChk", $("ignoreChk").checked ? "1" : "");
+  try{
+    const r = await fetch("/api/analyze", {method:"POST", body: fd});
+    const d = await r.json();
+    if(!r.ok || !d.ok){ setStatus("❌ "+(d.error||"分析失败"), true); return; }
+    $("repframe").srcdoc = d.html;
+    show("report"); $("report").scrollIntoView({behavior:"smooth"});
+    setStatus("✅ 分析完成，共收集 "+d.collected+" 条流水明细。");
+    refreshStats();
+  }catch(err){ setStatus("❌ 请求出错："+err, true); }
+}
+
+// 导出已收集流水
+$("exportBtn").addEventListener("click", () => {
+  window.location.href = "/api/export";
+});
+
+// 统计
+async function refreshStats(){
+  try{
+    const r = await fetch("/api/stats"); const d = await r.json();
+    if(d.ok) setStatus(($("status").textContent||"") + `　〔已收集上传 ${d.uploads} 次 / ${d.records} 条明细〕`);
+  }catch(e){}
+}
+</script>
+</body>
+</html>

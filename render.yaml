@@ -6,7 +6,9 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: cd server && gunicorn -w 2 -b 0.0.0.0:$PORT server:app
+    # 关键：PDF 解析较慢，必须把 gunicorn 超时拉到 120s，否则超过默认 30s 会被杀并返回非 JSON 导致前端 SyntaxError。
+    # 免费版内存有限，worker 数设为 1，避免双 worker 并发解析大 PDF 触发 OOM 崩溃。
+    startCommand: cd server && gunicorn -w 1 -b 0.0.0.0:$PORT --timeout 120 --graceful-timeout 30 server:app
     healthCheckPath: /api/me
     envVars:
       - key: PORT

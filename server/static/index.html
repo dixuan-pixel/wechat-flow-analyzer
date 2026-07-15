@@ -162,7 +162,15 @@ async function runAnalysis(){
   fd.append("ignoreChk", $("ignoreChk").checked ? "1" : "");
   try{
     const r = await fetch("/api/analyze", {method:"POST", body: fd});
-    const d = await r.json();
+    // 先取原始文本再手动解析：防止服务端超时/崩溃返回非 JSON（如 Service Unavailable）时，
+    // JSON.parse 直接抛 SyntaxError，导致界面只剩一句看不懂的报错。
+    const respText = await r.text();
+    let d;
+    try { d = JSON.parse(respText); }
+    catch(e){
+      setStatus("❌ 服务器未返回有效结果（多半是请求超时或被网关中断）。请稍候重试；若文件很大，可先在微信里导出 CSV 再上传，解析更快。服务端原始返回：" + respText.slice(0,160), true);
+      return;
+    }
     if(!r.ok || !d.ok){ setStatus("❌ "+(d.error||"分析失败"), true); return; }
     $("repframe").srcdoc = d.html;
     show("report"); $("report").scrollIntoView({behavior:"smooth"});

@@ -255,6 +255,17 @@ def export():
         headers={"Content-Disposition": "attachment; filename=collected_flow.csv"})
 
 
+# ---------------- 兜底：任何未捕获异常都返回 JSON，避免前端 JSON.parse 失败（SyntaxError） ----------------
+@app.errorhandler(500)
+def _handle_500(err):
+    return jsonify(ok=False, error="服务器内部错误，请稍后重试；若文件较大可先导出 CSV 再上传。"), 500
+
+
+@app.errorhandler(404)
+def _handle_404(err):
+    return jsonify(ok=False, error="接口不存在。"), 404
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     app.run(host="0.0.0.0", port=port, debug=False)
